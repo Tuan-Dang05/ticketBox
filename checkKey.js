@@ -1,12 +1,8 @@
-const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const fs = require('fs');
 const { createHash } = require('crypto');
-const colors = require('colors');
 const { machineIdSync } = require('node-machine-id');
-const express = require('express');
-const session = require('express-session');
-const crypto = require('crypto');
+
 
 const key = machineIdSync();
 
