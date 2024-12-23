@@ -7,10 +7,11 @@ const session = require('express-session');
 const crypto = require('crypto');
 
 const { validateKeyAndVersion } = require('./checkKey')
+require('dotenv').config()
 
 
 // Bot and Google OAuth2 Configuration
-const token = '7665658649:AAHY0HcW77zrdrzx9fHprXBSTz7Inrld3O4';
+const token = process.env.TELEGRAM_BOT_TOKEN;
 
 // Initialize Express app and Telegram bot
 const app = express();
