@@ -39,15 +39,26 @@ bot.onText(/\/start/, async (msg) => {
 Bạn có thể sử dụng các lệnh sau để tương tác với bot:
 - \`/key\`: Nhận key máy của bạn và kích hoạt.
 - \`/search <từ khóa>\`: Tìm kiếm sự kiện theo từ khóa.
+- \`/pick <ID>\`: Xem thông tin sự kiện theo ID.
 
 *Ví dụ:*
 \`/search concert\`
+\`/pick 12345\`
 
 Nếu bạn cần hỗ trợ, vui lòng liên hệ [@hd_onus](https://t.me/hd_onus).
     `;
     await bot.sendMessage(chatId, welcomeMessage, {
         parse_mode: 'Markdown',
         disable_web_page_preview: true,
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: '/key' }],
+                [{ text: '/search concert' }],
+                [{ text: '/pick 12345' }]
+            ],
+            resize_keyboard: true,
+            one_time_keyboard: true
+        }
     });
 
     // Automatically run /key command
@@ -70,16 +81,15 @@ bot.onText(/\/key/, async (msg) => {
 });
 // Hàm xử lý dữ liệu
 const extractEventInfo = (data) => {
-    // console.log( data.data.results)
     const results = data.data.results.map((event) => {
-        // console.log("results",event.badge.label.vi)
+        const badge = event.badge && event.badge.label ? event.badge.label.vi : 'Mua vé ngay';
         return {
             id: event.originalId,
             name: event.name,
             day: new Date(event.day).toLocaleString("vi-VN"), // Format ngày giờ
             price: event.price.toLocaleString("vi-VN") + " VND", // Format giá
-            deeplink: event.deeplink
-            // badge: event.badge.label // Trích badge tiếng Việt
+            deeplink: event.deeplink,
+            badge: badge,
         };
     });
     return results;
@@ -138,13 +148,49 @@ bot.onText(/^\/search$/, async (msg) => {
     await bot.sendMessage(chatId, 'Vui lòng nhập từ khóa tìm kiếm sau lệnh /search. Ví dụ: /search concert');
 });
 
+// Handle /pick command
+bot.onText(/^\/pick (\d+)$/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const eventId = match[1];
+
+    if (!eventId.trim()) {
+        return bot.sendMessage(chatId, 'Vui lòng nhập ID sự kiện hợp lệ.', {
+            parse_mode: 'Markdown',
+        });
+    }
+
+    const isValid = await validateKeyAndVersion(chatId);
+    if (!isValid) return;
+
+    try {
+        const response = await axios.get(
+            `https://api-v2.ticketbox.vn/gin/api/v1/events/${eventId}`
+        );
+
+        const event = response.data.data.result;
+        console.log("event", event.showings);
+        const text = `*ID:* \`${event.id}\`\n*Tên sự kiện:* ${event.title}\n*Địa chỉ:* ${event.address}\n*Trạng thái:* ${event.statusName}\n\n ${event.showings.statusName}\n`;
+
+        await bot.sendPhoto(chatId, event.bannerURL, {
+            caption: text,
+            parse_mode: 'Markdown',
+            disable_web_page_preview: true,
+        });
+    } catch (error) {
+        console.error('Pick API error:', error);
+        await bot.sendMessage(chatId, 'Đã xảy ra lỗi khi lấy thông tin sự kiện.', {
+            parse_mode: 'Markdown',
+        });
+    }
+});
+
 // Function to send event page
 const sendEventPage = async (chatId, page, messageId) => {
     const events = userSearchResults[chatId];
     const event = events[page];
     const totalPages = events.length;
 
-    const text = `*ID:* ${event.id}\n*Tên sự kiện:* ${event.name}\n*Ngày:* ${event.day}\n*Giá vé:* ${event.price}\n*Thông tin thêm:* [Link](${event.deeplink})`;
+    const text = `*ID:* \`${event.id}\`\n*Tên sự kiện:* ${event.name}\n*Ngày:* ${event.day}\n*Giá vé:* ${event.price}\n*Trạng thái:* ${event.badge}\n*Thông tin thêm:* [Link](${event.deeplink})`;
 
     const options = {
         parse_mode: "Markdown",
@@ -172,6 +218,11 @@ bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
     const data = callbackQuery.data;
     const messageId = callbackQuery.message.message_id;
+
+    if (!userSearchResults[chatId]) {
+        await bot.answerCallbackQuery(callbackQuery.id, { text: 'Không có kết quả tìm kiếm nào.' });
+        return;
+    }
 
     if (data === 'prev') {
         if (userCurrentPage[chatId] > 0) {
