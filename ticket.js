@@ -39,12 +39,14 @@ bot.onText(/\/start/, async (msg) => {
 
 Bạn có thể sử dụng các lệnh sau để tương tác với bot:
 - \`/key\`: Nhận key máy của bạn và kích hoạt.
-- \`/search <từ khóa>\`: Tìm kiếm sự kiện theo từ khóa.
-- \`/pick <ID>\`: Xem thông tin sự kiện theo ID.
+- \`/search từ khóa\`: Tìm kiếm sự kiện theo từ khóa.
+- \`/pick ID\`: Xem thông tin sự kiện theo ID.
+- \`/config email|fullname|phoneNumber\`: Thêm thông tin nhận vé.
 
 *Ví dụ:*
 \`/search concert\`
 \`/pick 12345\`
+\`/config example@gmail.com "Nguyễn Văn A" 0981234567\`
 
 Nếu bạn cần hỗ trợ, vui lòng liên hệ [@hd_onus](https://t.me/hd_onus).
     `;
@@ -53,20 +55,17 @@ Nếu bạn cần hỗ trợ, vui lòng liên hệ [@hd_onus](https://t.me/hd_on
         disable_web_page_preview: true,
         reply_markup: {
             inline_keyboard: [
-                [{ text: '/key' }],
-                [{ text: '/search concert' }],
-                [{ text: '/pick 12345' }]
-            ],
-            resize_keyboard: true,
-            one_time_keyboard: true
+                [{ text: 'Nhận key', callback_data: 'key' }],
+                [{ text: 'Tìm kiếm sự kiện', callback_data: 'search' }],
+                [{ text: 'Xem thông tin sự kiện', callback_data: 'pick' }],
+                [{ text: 'Thêm thông tin nhận vé', callback_data: 'config' }]
+            ]
         }
     });
 
     // Automatically run /key command
     bot.emit('text', { chat: { id: chatId }, text: '/key' });
 });
-
-
 
 // Handle /key command
 // Update /key command
@@ -139,22 +138,13 @@ bot.onText(/^\/search (.+)$/, async (msg, match) => {
     }
 });
 
-// Handle the case when no query is provided after "/search"
-bot.onText(/^\/search$/, async (msg) => {
-    const chatId = msg.chat.id;
-
-    const isValid = await validateKeyAndVersion(chatId);
-    if (!isValid) return;
-
-    await bot.sendMessage(chatId, 'Vui lòng nhập từ khóa tìm kiếm sau lệnh /search. Ví dụ: /search concert');
-});
 
 // Handle /pick command
 bot.onText(/^\/pick (\d+)$/, async (msg, match) => {
     const chatId = msg.chat.id;
     const eventId = match[1];
 
-    if (!eventId.trim()) {
+    if (!eventId.trim() || isNaN(eventId)) {
         return bot.sendMessage(chatId, 'Vui lòng nhập ID sự kiện hợp lệ.', {
             parse_mode: 'Markdown',
         });
@@ -169,14 +159,68 @@ bot.onText(/^\/pick (\d+)$/, async (msg, match) => {
         );
 
         const event = response.data.data.result;
-        console.log("event", event.showings);
-        const text = `*ID:* \`${event.id}\`\n*Tên sự kiện:* ${event.title}\n*Địa chỉ:* ${event.address}\n*Trạng thái:* ${event.statusName}\n\n ${event.showings.statusName}\n`;
+        const statusEvent = event.statusName === 'Select showtime' ? 'Đang diễn ra' : 'Đã kết thúc';
 
+        // Function to format date and time
+        const formatDateTime = (startTime, endTime) => {
+            const start = new Date(startTime);
+            const end = new Date(endTime);
+
+            const formatTime = (date) => {
+                return date.toLocaleTimeString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+            };
+
+            const formatDate = (date) => {
+                return date.toLocaleDateString('vi-VN', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric'
+                });
+            };
+
+            return `${formatTime(start)} - ${formatTime(end)} ${formatDate(start)}`;
+        };
+
+        console.log(event.statusName)
+        // First message with event info and photo
+        const eventInfo = `*ID:* \`${event.id}\`
+*Tên sự kiện:* ${event.title}
+*Địa chỉ:* ${event.address}
+*Trạng thái:* ${statusEvent}
+
+
+${event.statusName === 'Select showtime' || event.statusName === 'Book now' ? "Mua vé ngay" : "Suất diễn đã kết thúc"}`;
+
+        // Send photo with basic event info
         await bot.sendPhoto(chatId, event.bannerURL, {
-            caption: text,
+            caption: eventInfo,
             parse_mode: 'Markdown',
             disable_web_page_preview: true,
         });
+
+        // Send ticket information in separate messages for each showing
+        for (const showing of event.showings) {
+            const showingDateTime = formatDateTime(showing.startTime, showing.endTime);
+            let ticketMessage = `📅 *${showingDateTime}*\n`;
+
+            for (const ticket of showing.ticketTypes) {
+                ticketMessage += `
+                🆔 \`${ticket.id}\`
+                🎟 ${ticket.name}
+                💵 ${ticket.price.toLocaleString("vi-VN")} VND
+                _${ticket.description}_  
+                *Trạng thái:* ${ticket.statusName === 'Book now' ? 'Còn vé' : 'Hết vé'}
+`;
+            }
+
+            await bot.sendMessage(chatId, ticketMessage, {
+                parse_mode: 'Markdown'
+            });
+        }
     } catch (error) {
         console.error('Pick API error:', error);
         await bot.sendMessage(chatId, 'Đã xảy ra lỗi khi lấy thông tin sự kiện.', {
@@ -184,6 +228,94 @@ bot.onText(/^\/pick (\d+)$/, async (msg, match) => {
         });
     }
 });
+
+
+
+bot.onText(/^\/config (.+) (.+) (.+)$/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const email = match[1];
+    const fullName = match[2];  // Lấy nội dung trong dấu ngoặc kép
+    let phoneNumber = match[3];
+
+    // // Format phone number to +84
+    // if (phoneNumber.startsWith('0')) {
+    //     phoneNumber = '+84' + phoneNumber.slice(1);
+    // }
+
+    const isValid = await validateKeyAndVersion(chatId);
+    if (!isValid) return;
+    // log tung cai ra
+    console.log(email, fullName, phoneNumber);
+
+
+    const payload = {
+        addressId: "",
+        address: "",
+        email: email,
+        fullName: fullName,
+        phoneNumber: phoneNumber
+    };
+
+    try {
+        const response = await axios.put(
+            'https://api-v2.ticketbox.vn/event/api/v1/directories/addresses',
+            payload
+        );
+
+        const result = response.data.data.result;
+        const successMessage = `
+*Đăng ký thành công!*
+*ID:* \`${result.id}\`
+*Họ tên:* ${result.fullName}
+*Email:* ${result.email}
+*Số điện thoại:* ${result.phoneNumber}
+*Địa chỉ:* ${result.fullAddress || 'Không có'}
+        `;
+
+        await bot.sendMessage(chatId, successMessage, {
+            parse_mode: 'Markdown'
+        });
+    } catch (error) {
+        console.error('Register API error:', error);
+        await bot.sendMessage(chatId, 'Đã xảy ra lỗi khi gửi thông tin của bạn.', {
+            parse_mode: 'Markdown'
+        });
+    }
+});
+
+
+
+// VALIDATION
+bot.onText(/^\/search$/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    const isValid = await validateKeyAndVersion(chatId);
+    if (!isValid) return;
+
+    await bot.sendMessage(chatId, 'Vui lòng nhập từ khóa tìm kiếm sau lệnh /search. Ví dụ: /search concert');
+});
+
+bot.onText(/^\/pick$/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    const isValid = await validateKeyAndVersion(chatId);
+    if (!isValid) return;
+
+    await bot.sendMessage(chatId, 'Vui lòng nhập ID sự kiện sau lệnh /pick. Ví dụ: /pick 12345');
+});
+
+// Handle /register command
+bot.onText(/^\/config$/, async (msg) => {
+    const chatId = msg.chat.id;
+
+    const isValid = await validateKeyAndVersion(chatId);
+    if (!isValid) return;
+
+    await bot.sendMessage(chatId, 'Vui lòng nhập thông tin của bạn theo định dạng sau:\n\n`/config email fullname phoneNumber`\n\nVí dụ:\n`/config example@gmail.com "Nguyễn Văn A" 0981234567`', {
+        parse_mode: 'Markdown'
+    });
+});
+
 
 // Function to send event page
 const sendEventPage = async (chatId, page, messageId) => {
@@ -214,27 +346,49 @@ const sendEventPage = async (chatId, page, messageId) => {
     }
 };
 
-// Handle callback queries for pagination
+// Handle callback queries for pagination and inline keyboard buttons
+// Handle callback queries for pagination and inline keyboard buttons
 bot.on('callback_query', async (callbackQuery) => {
     const chatId = callbackQuery.message.chat.id;
     const data = callbackQuery.data;
     const messageId = callbackQuery.message.message_id;
 
-    if (!userSearchResults[chatId]) {
-        await bot.answerCallbackQuery(callbackQuery.id, { text: 'Không có kết quả tìm kiếm nào.' });
-        return;
-    }
+    // Xử lý các nút điều hướng trang chỉ khi đang xem kết quả tìm kiếm
+    if (data === 'prev' || data === 'next') {
+        if (!userSearchResults[chatId]) {
+            await bot.answerCallbackQuery(callbackQuery.id, { text: 'Không có kết quả tìm kiếm nào.' });
+            return;
+        }
 
-    if (data === 'prev') {
-        if (userCurrentPage[chatId] > 0) {
-            userCurrentPage[chatId]--;
-            await sendEventPage(chatId, userCurrentPage[chatId], messageId);
+        if (data === 'prev') {
+            if (userCurrentPage[chatId] > 0) {
+                userCurrentPage[chatId]--;
+                await sendEventPage(chatId, userCurrentPage[chatId], messageId);
+            }
+        } else if (data === 'next') {
+            if (userCurrentPage[chatId] < userSearchResults[chatId].length - 1) {
+                userCurrentPage[chatId]++;
+                await sendEventPage(chatId, userCurrentPage[chatId], messageId);
+            }
         }
-    } else if (data === 'next') {
-        if (userCurrentPage[chatId] < userSearchResults[chatId].length - 1) {
-            userCurrentPage[chatId]++;
-            await sendEventPage(chatId, userCurrentPage[chatId], messageId);
+    }
+    // Xử lý các nút lệnh
+    else if (data === 'key') {
+        // Thay vì dùng emit, gọi trực tiếp hàm xử lý key
+        const isValid = await validateKeyAndVersion(chatId);
+        if (isValid) {
+            await bot.sendMessage(chatId, 'Key đã được kích hoạt!', {
+                parse_mode: 'Markdown',
+            });
         }
+    } else if (data === 'search') {
+        await bot.sendMessage(chatId, 'Vui lòng nhập từ khóa tìm kiếm sau lệnh /search. Ví dụ: /search concert');
+    } else if (data === 'pick') {
+        await bot.sendMessage(chatId, 'Vui lòng nhập ID sự kiện sau lệnh /pick. Ví dụ: /pick 12345');
+    } else if (data === 'config') {
+        await bot.sendMessage(chatId, 'Vui lòng nhập thông tin của bạn theo định dạng sau:\n\n`/config email fullname phoneNumber`\n\nVí dụ:\n`/config example@gmail.com Nguyễn Văn A 0981234567`', {
+            parse_mode: 'Markdown'
+        });
     }
 
     // Acknowledge the callback query

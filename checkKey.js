@@ -30,7 +30,7 @@ const validateKeyAndVersion = async (chatId) => {
             userActivationStatus[chatId] = false;
             await bot.sendMessage(
                 chatId,
-                `Nhấn để sao chép key: \`${key}\`\nVui lòng liên hệ [@hd_onus](https://t.me/hd_onus) để kích hoạt!`,
+                `Nhấn để sao chép key: 🔑\`${key}\`🔑\nVui lòng liên hệ [@hd_onus](https://t.me/hd_onus) để kích hoạt!`,
                 {
                     parse_mode: 'Markdown',
                     disable_web_page_preview: true,
